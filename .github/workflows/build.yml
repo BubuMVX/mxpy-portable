@@ -1,0 +1,124 @@
+name: Build portable mxpy (all platforms)
+
+on:
+  schedule:
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+
+jobs:
+  fetch-release:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      tarball: ${{ steps.meta.outputs.tarball }}
+      upstream_url: ${{ steps.meta.outputs.upstream_url }}
+    steps:
+      - name: Ensure jq is available
+        run: |
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y jq
+          fi
+      - name: Fetch latest release metadata
+        id: meta
+        run: |
+          curl -s https://api.github.com/repos/multiversx/mx-sdk-py-cli/releases/latest > release.json
+          echo "tag=$(jq -r .tag_name release.json)" >> $GITHUB_OUTPUT
+          echo "tarball=$(jq -r .tarball_url release.json)" >> $GITHUB_OUTPUT
+          echo "upstream_url=$(jq -r .html_url release.json)" >> $GITHUB_OUTPUT
+
+  build:
+    name: Build ${{ matrix.os }}
+    needs: fetch-release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ windows-latest, macos-latest, ubuntu-22.04 ]
+
+    steps:
+      - name: Checkout self
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download source
+        shell: bash
+        run: |
+          curl -L ${{ needs.fetch-release.outputs.tarball }} -o source.tar.gz
+          tar -xzf source.tar.gz --strip-components 1
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install . pyinstaller
+
+      - name: Create wrapper
+        shell: bash
+        run: |
+          cat > run_mxpy.py << 'PY'
+          from multiversx_sdk_cli.cli import main
+
+          if __name__ == '__main__':
+              main()
+          PY
+
+      - name: Build executable (with --clean --optimize 2)
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            pyinstaller --onefile --clean --optimize 2 --name mxpy-windows run_mxpy.py --icon=icon.ico
+            echo "artifact_path=dist/mxpy-windows.exe" >> $GITHUB_ENV
+            echo "artifact_name=mxpy-windows" >> $GITHUB_ENV
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            pyinstaller --onefile --clean --optimize 2 --name mxpy-macos run_mxpy.py --icon=icon.icns
+            echo "artifact_path=dist/mxpy-macos" >> $GITHUB_ENV
+            echo "artifact_name=mxpy-macos" >> $GITHUB_ENV
+          else
+            pyinstaller --onefile --clean --optimize 2 --name mxpy-linux run_mxpy.py
+            echo "artifact_path=dist/mxpy-linux" >> $GITHUB_ENV
+            echo "artifact_name=mxpy-linux" >> $GITHUB_ENV
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.artifact_name }}
+          path: ${{ env.artifact_path }}
+
+  release:
+    name: Publish GitHub Release
+    needs: [ fetch-release, build ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts (flatten)
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          ls -la
+          sha256sum mxpy-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.fetch-release.outputs.tag }}
+          name: ${{ needs.fetch-release.outputs.tag }}
+          body: |
+            Built from upstream: [multiversx/mx-sdk-py-cli ${{ needs.fetch-release.outputs.tag }}](${{ needs.fetch-release.outputs.upstream_url }})
+
+            **Checksums:** see `SHA256SUMS.txt` in assets.
+          files: |
+            dist/mxpy-*
+            dist/SHA256SUMS.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
