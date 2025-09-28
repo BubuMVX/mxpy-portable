@@ -4,6 +4,10 @@ This repository provides **portable executables** of
 the [MultiversX CLI (mxpy)](https://github.com/multiversx/mx-sdk-py-cli), automatically built from the latest official
 releases.
 
+For real usage examples, check out [EXAMPLES.md](EXAMPLES.md).
+
+For full details, see the [official mxpy documentation](https://github.com/multiversx/mx-sdk-py-cli/blob/main/CLI.md).
+
 ## About
 
 [mxpy](https://github.com/multiversx/mx-sdk-py-cli) is the official MultiversX command line interface.  
