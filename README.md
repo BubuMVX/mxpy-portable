@@ -88,6 +88,21 @@ From the release directory:
 sha256sum -c SHA256SUMS.txt
 ```
 
+## Manual build
+
+To manually build a portable executable for your current system, you can use the script [build-mxpy.sh](build-mxpy.sh).
+
+You will need these tools: Python 3 (with `pip` and `venv`), `curl`.
+
+```bash
+chmod +x build-mxpy.sh
+./build-mxpy.sh
+```
+
+The created executable will be in the folder `./build-mxpy/dist/`.
+
+This script works on Windows (with Cygwin), macOS and Linux.
+
 ## Automation
 
 Workflow runs daily at **14:00 UTC**.
